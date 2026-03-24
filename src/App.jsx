@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import { 
   getAuth, 
   signInAnonymously, 
-  signInWithCustomToken, 
   onAuthStateChanged 
 } from 'firebase/auth';
 import { 
@@ -12,31 +11,25 @@ import {
   doc, 
   addDoc, 
   onSnapshot, 
-  query, 
   serverTimestamp,
   deleteDoc
 } from 'firebase/firestore';
 import { 
-  Calculator, 
   Settings, 
-  Zap, 
-  Wrench, 
-  Clock, 
-  Coins, 
   TrendingUp, 
   PieChart as PieChartIcon, 
-  Info,
-  RefreshCcw,
   Factory,
   Save,
   History,
   Trash2,
-  ExternalLink,
   Loader2,
-  Eraser
+  Eraser,
+  WifiOff,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
-// --- Firebase Configuration ---
+// --- [จุดสำคัญ] ตรวจสอบ Config ของคุณให้ถูกต้อง ---
 const firebaseConfig = {
   apiKey: "AIzaSyDzXTKNRMMZv8p0hl8np_kC86YmnlenIt0",
   authDomain: "pump-tco-calculator.firebaseapp.com",
@@ -45,7 +38,8 @@ const firebaseConfig = {
   messagingSenderId: "697088863146",
   appId: "1:697088863146:web:2b8eefe8b060ba80c919d3"
 };
-const app = initializeApp(firebaseConfig);
+
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = 'pump-tco-calculator';
@@ -55,18 +49,9 @@ const App = () => {
   const [savedRecords, setSavedRecords] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [recordName, setRecordName] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connecting', 'connected', 'error'
+  const [errorMessage, setErrorMessage] = useState('');
   
-  // Empty State for Reset
-  const emptyInputs = {
-    initialCost: 0,
-    powerRating: 0,
-    operatingHours: 0,
-    electricityCost: 0,
-    maintenanceCost: 0,
-    lifecycle: 1
-  };
-
-  // Input States (Keep as numbers for calculation)
   const [inputs, setInputs] = useState({
     initialCost: 150000,
     powerRating: 22,
@@ -76,91 +61,90 @@ const App = () => {
     lifecycle: 10
   });
 
-  // 1. Authentication Setup
-  useEffect(() => {
-    const initAuth = async () => {
+  // ฟังก์ชันสำหรับพยายามเชื่อมต่อใหม่เมื่อเกิด Network Error
+  const signInWithRetry = async (retries = 5, delay = 1000) => {
+    for (let i = 0; i < retries; i++) {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
+        setConnectionStatus('connecting');
+        await signInAnonymously(auth);
+        setErrorMessage('');
+        return; // สำเร็จแล้วให้ออกลูป
+      } catch (err) {
+        console.error(`Auth Attempt ${i + 1} failed:`, err.message);
+        if (i === retries - 1) {
+          setConnectionStatus('error');
+          setErrorMessage('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตหรือ Config');
         } else {
-          await signInAnonymously(auth);
+          // รอเพิ่มขึ้นเรื่อยๆ (Exponential backoff)
+          await new Promise(res => setTimeout(res, delay * Math.pow(2, i)));
         }
-      } catch (error) {
-        console.error("Auth Error:", error);
       }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
+    }
+  };
+
+  useEffect(() => {
+    signInWithRetry();
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        setConnectionStatus('connected');
+      } else {
+        setUser(null);
+      }
+    });
     return () => unsubscribe();
   }, []);
 
-  // 2. Data Fetching
   useEffect(() => {
+    // ป้องกันการ Query ถ้ายังไม่ได้ Login
     if (!user) return;
 
     const q = collection(db, 'artifacts', appId, 'users', user.uid, 'calculations');
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSavedRecords(docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
     }, (error) => {
       console.error("Firestore Error:", error);
+      // ถ้าเกิดปัญหาเรื่อง Permission หรือ Network ใน Firestore
+      if (error.code === 'unavailable') {
+        setConnectionStatus('error');
+      }
     });
-
     return () => unsubscribe();
   }, [user]);
 
-  // Formatting helpers
-  const formatDisplayValue = (val) => {
-    if (val === undefined || val === null || val === '' || val === 0) return '';
-    const parts = val.toString().split('.');
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    return parts.join('.');
-  };
-
-  const parseDisplayValue = (val) => {
-    return val.replace(/,/g, '');
-  };
-
-  // Calculation Logic
   const results = useMemo(() => {
-    const annualEnergyCost = (parseFloat(inputs.powerRating) || 0) * (parseFloat(inputs.operatingHours) || 0) * (parseFloat(inputs.electricityCost) || 0);
-    const totalEnergyCost = annualEnergyCost * (parseFloat(inputs.lifecycle) || 0);
-    const totalMaintenanceCost = (parseFloat(inputs.maintenanceCost) || 0) * (parseFloat(inputs.lifecycle) || 0);
-    const totalTCO = (parseFloat(inputs.initialCost) || 0) + totalEnergyCost + totalMaintenanceCost;
-    const averageYearlyCost = totalTCO / (parseFloat(inputs.lifecycle) || 1);
+    const pwr = parseFloat(inputs.powerRating) || 0;
+    const hrs = parseFloat(inputs.operatingHours) || 0;
+    const cost = parseFloat(inputs.electricityCost) || 0;
+    const life = parseFloat(inputs.lifecycle) || 1;
+    const init = parseFloat(inputs.initialCost) || 0;
+    const maint = parseFloat(inputs.maintenanceCost) || 0;
+
+    const annualEnergy = pwr * hrs * cost;
+    const totalEnergy = annualEnergy * life;
+    const totalMaint = maint * life;
+    const totalTCO = init + totalEnergy + totalMaint;
 
     return {
-      annualEnergyCost,
-      totalEnergyCost,
-      totalMaintenanceCost,
+      totalEnergyCost: totalEnergy,
+      totalMaintenanceCost: totalMaint,
       totalTCO,
-      averageYearlyCost,
+      averageYearlyCost: totalTCO / life,
       percentages: {
-        initial: ((parseFloat(inputs.initialCost) || 0) / (totalTCO || 1)) * 100,
-        energy: (totalEnergyCost / (totalTCO || 1)) * 100,
-        maintenance: (totalMaintenanceCost / (totalTCO || 1)) * 100
+        initial: (init / (totalTCO || 1)) * 100,
+        energy: (totalEnergy / (totalTCO || 1)) * 100,
+        maintenance: (totalMaint / (totalTCO || 1)) * 100
       }
     };
   }, [inputs]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    const cleanValue = parseDisplayValue(value);
-    
-    // Allow only numbers and one decimal point
+    const cleanValue = value.replace(/,/g, '');
     if (cleanValue !== '' && !/^\d*\.?\d*$/.test(cleanValue)) return;
-
-    setInputs(prev => ({ 
-      ...prev, 
-      [name]: cleanValue === '' ? 0 : cleanValue 
-    }));
-  };
-
-  const resetInputs = () => {
-    setInputs(emptyInputs);
+    setInputs(prev => ({ ...prev, [name]: cleanValue === '' ? 0 : cleanValue }));
   };
 
   const saveCalculation = async () => {
@@ -174,160 +158,107 @@ const App = () => {
         createdAt: serverTimestamp()
       });
       setRecordName('');
-    } catch (error) {
-      console.error("Save Error:", error);
-    } finally {
-      setIsSaving(false);
+    } catch (e) { 
+      console.error("Save failed:", e);
+      setErrorMessage("บันทึกข้อมูลไม่สำเร็จ");
+    } finally { 
+      setIsSaving(false); 
     }
   };
 
-  const deleteRecord = async (id) => {
-    if (!user) return;
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'calculations', id));
-    } catch (error) {
-      console.error("Delete Error:", error);
-    }
-  };
-
-  const formatCurrency = (val) => {
-    return new Intl.NumberFormat('th-TH', {
-      style: 'currency',
-      currency: 'THB',
-      maximumFractionDigits: 0
-    }).format(val || 0);
-  };
+  const formatCurrency = (val) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', maximumFractionDigits: 0 }).format(val || 0);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
-      <div className="fixed inset-0 overflow-hidden -z-10">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-600/10 blur-[120px] rounded-full"></div>
-      </div>
+    <div className="min-h-screen bg-[#050510] text-slate-200 p-4 md:p-6 lg:p-8 font-sans">
+      {/* แจ้งเตือนข้อผิดพลาดแบบลอย */}
+      {errorMessage && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4">
+          <AlertCircle size={20} />
+          <span className="text-sm font-bold">{errorMessage}</span>
+          <button onClick={() => setErrorMessage('')} className="ml-2 hover:opacity-50">×</button>
+        </div>
+      )}
 
-      <main className="max-w-7xl mx-auto">
-        <header className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-600 rounded-2xl shadow-xl shadow-blue-900/20">
-              <Factory className="w-8 h-8 text-white" />
+      <div className="max-w-6xl mx-auto">
+        
+        {/* Header */}
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-900/40">
+              <Factory className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">Pump TCO Engine <span className="text-blue-500 font-normal">Pro</span></h1>
-              <p className="text-slate-500 text-sm">วิเคราะห์ต้นทุนพลังงานและการจัดรูปแบบตัวเลข</p>
+              <h1 className="text-xl font-bold text-white tracking-tight">Pump TCO Engine <span className="text-blue-500">Pro</span></h1>
+              <p className="text-xs text-slate-500">วิเคราะห์ต้นทุนพลังงานและจุดคุ้มทุน</p>
             </div>
           </div>
-          
-          <div className="flex items-center gap-3">
-            <div className="text-right hidden md:block">
-              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">User Identity</p>
-              <p className="text-xs text-blue-400 font-mono">{user?.uid || 'Authenticating...'}</p>
-            </div>
+          <div className={`text-[10px] font-bold px-3 py-1 rounded-full border transition-colors ${
+            connectionStatus === 'connected' 
+            ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5' 
+            : connectionStatus === 'error'
+            ? 'border-red-500/30 text-red-400 bg-red-500/5'
+            : 'border-blue-500/30 text-blue-400 animate-pulse bg-blue-500/5'
+          }`}>
+            {connectionStatus === 'connected' ? (
+              <span className="flex items-center gap-1.5"><CheckCircle2 size={10} /> CLOUD STORAGE ACTIVE</span>
+            ) : connectionStatus === 'error' ? (
+              <span className="flex items-center gap-1.5"><WifiOff size={10} /> OFFLINE MODE / ERROR</span>
+            ) : (
+              <span className="flex items-center gap-1.5"><Loader2 size={10} className="animate-spin" /> CONNECTING...</span>
+            )}
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
+          {/* Left Column: Inputs & History */}
           <div className="lg:col-span-4 space-y-6">
-            <div className="bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-2xl">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-sm font-bold flex items-center gap-2 text-slate-400 uppercase tracking-widest">
-                  <Settings className="w-4 h-4" /> Parameters
-                </h2>
-                <button 
-                  onClick={resetInputs}
-                  className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 hover:text-red-400 transition-colors uppercase tracking-widest bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-800 hover:border-red-400/30"
-                >
-                  <Eraser className="w-3 h-3" /> ล้างข้อมูล
-                </button>
+            <div className="bg-[#0f1120] border border-white/5 rounded-2xl p-5 shadow-xl">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Settings className="w-3.5 h-3.5" /> ตั้งค่าตัวแปร</h2>
+                <button onClick={() => setInputs({initialCost:0, powerRating:0, operatingHours:0, electricityCost:0, maintenanceCost:0, lifecycle:1})} className="text-[10px] text-slate-500 hover:text-red-400 transition-colors"><Eraser className="w-3 h-3 inline mr-1" /> ล้าง</button>
               </div>
-              
+
               <div className="space-y-4">
-                <InputField 
-                  label="ราคาเครื่องและการติดตั้ง" 
-                  name="initialCost" 
-                  value={formatDisplayValue(inputs.initialCost)} 
-                  onChange={handleInputChange} 
-                  unit="บาท" 
-                />
-                <div className="grid grid-cols-2 gap-4">
-                  <InputField 
-                    label="กำลังไฟฟ้า (kW)" 
-                    name="powerRating" 
-                    value={formatDisplayValue(inputs.powerRating)} 
-                    onChange={handleInputChange} 
-                    unit="kW" 
-                  />
-                  <InputField 
-                    label="ชม. ใช้งาน/ปี" 
-                    name="operatingHours" 
-                    value={formatDisplayValue(inputs.operatingHours)} 
-                    onChange={handleInputChange} 
-                    unit="Hrs" 
-                  />
+                <InputField label="ราคาเครื่อง + ติดตั้ง" name="initialCost" value={inputs.initialCost} onChange={handleInputChange} unit="บาท" />
+                <div className="grid grid-cols-2 gap-3">
+                  <InputField label="กำลัง (kW)" name="powerRating" value={inputs.powerRating} onChange={handleInputChange} unit="kW" />
+                  <InputField label="ชม. ใช้งาน/ปี" name="operatingHours" value={inputs.operatingHours} onChange={handleInputChange} unit="ชม." />
                 </div>
-                <InputField 
-                  label="ค่าไฟฟ้าต่อหน่วย" 
-                  name="electricityCost" 
-                  value={formatDisplayValue(inputs.electricityCost)} 
-                  onChange={handleInputChange} 
-                  unit="บาท" 
-                />
-                <InputField 
-                  label="ค่าบำรุงรักษา/ปี" 
-                  name="maintenanceCost" 
-                  value={formatDisplayValue(inputs.maintenanceCost)} 
-                  onChange={handleInputChange} 
-                  unit="บาท" 
-                />
+                <InputField label="ค่าไฟ/หน่วย" name="electricityCost" value={inputs.electricityCost} onChange={handleInputChange} unit="บาท" />
+                <InputField label="บำรุงรักษา/ปี" name="maintenanceCost" value={inputs.maintenanceCost} onChange={handleInputChange} unit="บาท" />
                 
-                <div className="pt-4 border-t border-white/5">
-                  <div className="flex justify-between text-[11px] font-bold text-slate-500 mb-2">
-                    <span>อายุการใช้งาน</span>
+                <div className="pt-2">
+                  <div className="flex justify-between text-[10px] font-bold mb-2">
+                    <span className="text-slate-500 uppercase">อายุการใช้งาน</span>
                     <span className="text-blue-400">{inputs.lifecycle} ปี</span>
                   </div>
-                  <input type="range" name="lifecycle" min="1" max="25" value={inputs.lifecycle} onChange={handleInputChange} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                  <input type="range" name="lifecycle" min="1" max="25" value={inputs.lifecycle} onChange={handleInputChange} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
                 </div>
 
-                <div className="pt-6 flex gap-2">
-                  <input 
-                    type="text" 
-                    placeholder="ชื่อรายการบันทึก..." 
-                    value={recordName}
-                    onChange={(e) => setRecordName(e.target.value)}
-                    className="flex-1 bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500 text-white"
-                  />
-                  <button 
-                    onClick={saveCalculation}
-                    disabled={isSaving || !recordName}
-                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white p-2.5 rounded-xl transition-all shadow-lg shadow-blue-900/20"
-                  >
-                    {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                <div className="pt-4 flex gap-2">
+                  <input type="text" placeholder="ชื่อบันทึก..." value={recordName} onChange={(e) => setRecordName(e.target.value)} className="flex-1 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500 text-white" />
+                  <button onClick={saveCalculation} disabled={isSaving || !recordName || !user} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-20 p-2 rounded-lg transition-all text-white shadow-lg shadow-blue-900/20">
+                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
             </div>
 
-            <div className="bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-3xl p-6">
-              <h2 className="text-sm font-bold mb-4 flex items-center gap-2 text-slate-400 uppercase tracking-widest">
-                <History className="w-4 h-4" /> ประวัติการคำนวณ
-              </h2>
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+            <div className="bg-[#0f1120] border border-white/5 rounded-2xl p-5">
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><History className="w-3.5 h-3.5" /> ประวัติบันทึก</h2>
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                 {savedRecords.length === 0 ? (
-                  <p className="text-xs text-slate-600 italic text-center py-8">ไม่มีรายการที่บันทึกไว้</p>
+                  <p className="text-[10px] text-slate-600 text-center py-4">ไม่มีรายการบันทึก</p>
                 ) : (
-                  savedRecords.map((rec) => (
-                    <div key={rec.id} className="group bg-slate-800/30 border border-slate-800 p-3 rounded-2xl flex items-center justify-between hover:border-blue-500/50 transition-all">
-                      <button 
-                        onClick={() => setInputs(rec.inputs)}
-                        className="text-left flex-1"
-                      >
-                        <p className="text-sm font-bold text-slate-200 truncate">{rec.name}</p>
-                        <p className="text-[10px] text-slate-500">{formatCurrency(rec.results.totalTCO)}</p>
+                  savedRecords.map(rec => (
+                    <div key={rec.id} className="group bg-white/5 border border-white/5 p-3 rounded-xl flex justify-between items-center hover:border-blue-500/30 transition-all">
+                      <button onClick={() => setInputs(rec.inputs)} className="text-left flex-1 min-w-0">
+                        <p className="text-[11px] font-bold text-slate-300 truncate">{rec.name}</p>
+                        <p className="text-[10px] text-blue-500 font-mono">{formatCurrency(rec.results.totalTCO)}</p>
                       </button>
-                      <button 
-                        onClick={() => deleteRecord(rec.id)}
-                        className="text-slate-600 hover:text-red-400 p-2 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
+                      <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'calculations', rec.id))} className="text-slate-600 hover:text-red-400 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ))
@@ -336,94 +267,77 @@ const App = () => {
             </div>
           </div>
 
+          {/* Right Column: Main Display */}
           <div className="lg:col-span-8 space-y-6">
-            <div className="bg-gradient-to-br from-blue-700 to-indigo-900 rounded-[2.5rem] p-8 md:p-12 text-white relative overflow-hidden shadow-2xl">
-              <div className="relative z-10">
-                <p className="text-blue-100/50 text-xs font-bold uppercase tracking-[0.2em] mb-4">Total Cost of Ownership</p>
-                <h2 className="text-5xl md:text-8xl font-black tracking-tighter mb-10">
-                  {formatCurrency(results.totalTCO)}
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-10 border-t border-white/10">
-                  <ResultStat label="ต้นทุนพลังงานรวม" value={formatCurrency(results.totalEnergyCost)} />
-                  <ResultStat label="ค่าซ่อมบำรุงรวม" value={formatCurrency(results.totalMaintenanceCost)} />
-                  <ResultStat label="เฉลี่ยต่อปี" value={formatCurrency(results.averageYearlyCost)} highlight />
-                </div>
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-800 rounded-[2rem] p-6 md:p-10 text-white shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-8 opacity-10"><Factory size={120} /></div>
+              <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-white/5 rounded-full blur-3xl"></div>
+              
+              <p className="text-blue-100/60 text-[10px] font-black uppercase tracking-[0.3em] mb-2">Total Cost of Ownership</p>
+              <h2 className="text-4xl md:text-6xl font-black tracking-tighter mb-8 break-all leading-none">
+                {formatCurrency(results.totalTCO)}
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-8 border-t border-white/10">
+                <StatBox label="ต้นทุนพลังงาน" value={formatCurrency(results.totalEnergyCost)} />
+                <StatBox label="ค่าบำรุงรักษา" value={formatCurrency(results.totalMaintenanceCost)} />
+                <StatBox label="เฉลี่ยต่อปี" value={formatCurrency(results.averageYearlyCost)} color="text-emerald-300" />
               </div>
-              <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/2"></div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-8">
-                <h3 className="text-sm font-bold text-slate-400 mb-8 uppercase tracking-widest flex items-center gap-2">
-                  <PieChartIcon className="w-4 h-4" /> สัดส่วนค่าใช้จ่าย (%)
-                </h3>
-                <div className="space-y-6">
-                  <MiniProgress label="ตัวเครื่อง" percent={results.percentages.initial} color="bg-slate-400" />
-                  <MiniProgress label="ไฟฟ้า" percent={results.percentages.energy} color="bg-blue-500" />
-                  <MiniProgress label="ซ่อมบำรุง" percent={results.percentages.maintenance} color="bg-emerald-500" />
+              <div className="bg-[#0f1120] border border-white/5 rounded-2xl p-6">
+                <h3 className="text-xs font-bold text-slate-400 mb-6 uppercase tracking-widest flex items-center gap-2"><PieChartIcon className="w-3.5 h-3.5" /> สัดส่วนค่าใช้จ่าย</h3>
+                <div className="space-y-5">
+                  <Progress label="ค่าเครื่อง" percent={results.percentages.initial} color="bg-slate-500" />
+                  <Progress label="ค่าไฟฟ้า" percent={results.percentages.energy} color="bg-blue-500" />
+                  <Progress label="ซ่อมบำรุง" percent={results.percentages.maintenance} color="bg-emerald-500" />
                 </div>
               </div>
 
-              <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-8 flex flex-col justify-center items-center text-center">
-                <div className="p-4 bg-emerald-500/10 rounded-full mb-4">
-                  <TrendingUp className="w-8 h-8 text-emerald-400" />
+              <div className="bg-[#0f1120] border border-white/5 rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+                <div className="w-12 h-12 bg-emerald-500/10 rounded-full flex items-center justify-center mb-4 text-emerald-400">
+                  <TrendingUp className="w-6 h-6" />
                 </div>
-                <h4 className="text-lg font-bold text-white mb-2">บทวิเคราะห์</h4>
-                <p className="text-sm text-slate-400 leading-relaxed">
-                  {results.totalTCO > 0 ? (
-                    <>
-                      ต้นทุนปั๊มตัวนี้ส่วนใหญ่มาจาก <strong>{results.percentages.energy > 50 ? 'พลังงานไฟฟ้า' : 'ค่าตัวเครื่อง'}</strong> 
-                      {results.percentages.energy > 50 
-                        ? ' แนะนำให้เลือกปั๊มที่มีประสิทธิภาพสูงเพื่อลดต้นทุน' 
-                        : ' ค่าเครื่องเป็นต้นทุนหลัก ควรเน้นการต่อรองราคาจัดซื้อ'}
-                    </>
-                  ) : (
-                    "กรุณากรอกข้อมูลเพื่อเริ่มการวิเคราะห์ต้นทุน"
-                  )}
+                <h4 className="text-white font-bold mb-2">บทวิเคราะห์</h4>
+                <p className="text-xs text-slate-400 leading-relaxed px-4">
+                  ต้นทุนหลัก ({results.percentages.energy > 50 ? 'ค่าไฟ' : 'ค่าเครื่อง'}) คิดเป็น {Math.max(results.percentages.energy, results.percentages.initial).toFixed(1)}% 
+                  {results.percentages.energy > 70 ? " การเพิ่มประสิทธิภาพเพียง 5% จะประหยัดเงินได้มหาศาล" : " ควรเน้นไปที่ความทนทานและการรับประกัน"}
                 </p>
               </div>
             </div>
           </div>
+
         </div>
-      </main>
+      </div>
     </div>
   );
 };
 
-// --- Sub Components ---
 const InputField = ({ label, name, value, onChange, unit }) => (
   <div>
-    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 block">{label}</label>
+    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">{label}</label>
     <div className="relative">
-      <input 
-        type="text" 
-        name={name} 
-        value={value} 
-        onChange={onChange}
-        inputMode="decimal"
-        placeholder="0"
-        className="w-full bg-slate-800/40 border border-slate-800 rounded-xl py-2.5 px-4 text-white font-bold focus:border-blue-500/50 outline-none transition-all placeholder:text-slate-700"
-      />
-      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[9px] font-black text-slate-600 uppercase">{unit}</span>
+      <input type="text" name={name} value={new Intl.NumberFormat().format(value || 0)} onChange={onChange} inputMode="decimal" className="w-full bg-slate-900/50 border border-slate-800 rounded-lg py-2 px-3 text-sm text-white focus:border-blue-500/50 outline-none" />
+      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-slate-600">{unit}</span>
     </div>
   </div>
 );
 
-const ResultStat = ({ label, value, highlight }) => (
+const StatBox = ({ label, value, color = "text-white" }) => (
   <div>
-    <p className="text-[10px] text-blue-100/40 uppercase font-bold mb-1">{label}</p>
-    <p className={`text-xl font-bold ${highlight ? 'text-emerald-400' : 'text-white'}`}>{value}</p>
+    <p className="text-[9px] text-blue-100/40 uppercase font-bold mb-1">{label}</p>
+    <p className={`text-lg font-bold truncate ${color}`}>{value}</p>
   </div>
 );
 
-const MiniProgress = ({ label, percent, color }) => (
-  <div className="space-y-2">
-    <div className="flex justify-between text-xs font-bold">
-      <span className="text-slate-500">{label}</span>
-      <span className="text-white">{isNaN(percent) ? '0.0' : percent.toFixed(1)}%</span>
+const Progress = ({ label, percent, color }) => (
+  <div className="space-y-1.5">
+    <div className="flex justify-between text-[10px] font-bold">
+      <span className="text-slate-500 uppercase">{label}</span>
+      <span className="text-white">{percent.toFixed(1)}%</span>
     </div>
     <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-      <div style={{ width: `${isNaN(percent) ? 0 : percent}%` }} className={`h-full ${color} transition-all duration-1000`} />
+      <div style={{ width: `${percent}%` }} className={`h-full ${color} transition-all duration-700`} />
     </div>
   </div>
 );
