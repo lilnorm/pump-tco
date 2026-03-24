@@ -133,7 +133,7 @@ const App = () => {
           </div>
         </section>
 
-        {/* MIDDLE: Massive Results - เปลี่ยนจากการจัดวางตรงกลางเป็นชิดซ้าย */}
+        {/* MIDDLE: Massive Results */}
         <section className="flex-1 flex flex-col justify-center bg-linear-to-br from-blue-700 via-blue-900 to-slate-950 rounded-[2rem] p-6 md:p-8 lg:p-10 text-white shadow-2xl relative overflow-hidden group border border-white/10 shrink-0 min-h-0">
           <div className="absolute top-0 right-0 p-6 opacity-[0.03] scale-[2.5] pointer-events-none group-hover:rotate-6 transition-transform duration-1000">
             <Calculator size={100} />
@@ -144,14 +144,14 @@ const App = () => {
               <Activity size={8} className="text-blue-400" /> Life Cycle Total Cost Analysis
             </div>
             
-            {/* ปรับแก้: เอา justify-center ออก เพื่อให้ตัวเลขชิดซ้าย (Items-start) */}
             <div className="flex-1 flex items-center justify-start py-2 overflow-hidden">
               <div className="text-5xl md:text-7xl lg:text-[7.5vw] font-black tracking-tighter leading-none text-white transition-all duration-300 drop-shadow-[0_8px_30px_rgba(0,0,0,0.5)] flex items-baseline gap-2 whitespace-nowrap overflow-hidden">
                 {formatCurr(results.totalTCO)}
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-white/10 mt-2 shrink-0">
+            {/* ส่วนที่ปรับขนาดตัวอักษรใต้เลข Total */}
+            <div className="grid grid-cols-3 gap-3 pt-6 border-t border-white/10 mt-2 shrink-0">
               <DisplayItem label="พลังงานสะสม" value={formatCurr(results.totalEnergyCost)} />
               <DisplayItem label="ซ่อมบำรุงสะสม" value={formatCurr(results.totalMaintenanceCost)} />
               <DisplayItem label="เฉลี่ยต้นทุน/ปี" value={formatCurr(results.averageYearlyCost)} highlight />
@@ -215,7 +215,6 @@ const InputBox = ({ label, name, value, onChange, unit }) => {
           value={displayValue} 
           placeholder="0"
           onChange={onChange} inputMode="decimal"
-          // ปรับขนาดฟอนต์ Input ให้ใหญ่ขึ้นตามคำขอ
           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white font-black outline-none focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10 transition-all text-lg tracking-tight"
         />
         <div className="absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded text-[8px] font-black text-slate-600 uppercase bg-white/5 border border-white/5">
@@ -226,10 +225,13 @@ const InputBox = ({ label, name, value, onChange, unit }) => {
   );
 };
 
+// คอมโพเนนต์ที่ปรับปรุงขนาดตัวอักษร
 const DisplayItem = ({ label, value, highlight }) => (
   <div className="min-w-0">
-    <p className="text-[7px] text-blue-200/30 uppercase font-black tracking-[0.15em] mb-0.5">{label}</p>
-    <p className={`text-[14px] md:text-lg font-black truncate ${highlight ? 'text-emerald-400' : 'text-white'}`}>
+    {/* ปรับขนาด Label จาก 7px เป็น 10px */}
+    <p className="text-[10px] text-blue-100 font-black uppercase tracking-widest mb-1.5 opacity-60">{label}</p>
+    {/* ปรับขนาด Value จาก 14px เป็น text-lg (18px) หรือ xl (20px) */}
+    <p className={`text-base md:text-xl font-black truncate ${highlight ? 'text-emerald-400' : 'text-white'}`}>
       {value}
     </p>
   </div>
