@@ -58,7 +58,6 @@ const App = () => {
   };
 
   const handleReset = () => {
-    // Reset to empty strings for immediate typing without deleting '0'
     setInputs({ 
       initialCost: "", 
       powerRating: "", 
@@ -76,7 +75,7 @@ const App = () => {
   }).format(v || 0);
 
   return (
-    <div className="min-h-screen bg-[#030712] text-[#f8fafc] font-sans selection:bg-blue-500/30">
+    <div className="min-h-screen bg-[#030712] text-[#f8fafc] font-sans selection:bg-blue-500/30 pb-20">
       
       {/* Visual background elements */}
       <div className="fixed inset-0 pointer-events-none z-0">
@@ -87,7 +86,7 @@ const App = () => {
       <div className="max-w-7xl mx-auto p-4 md:p-10 relative z-10">
         
         {/* Header Section */}
-        <header className="flex flex-col md:flex-row justify-between items-center bg-slate-900/60 backdrop-blur-xl p-6 rounded-[2rem] mb-10 border border-white/10 shadow-2xl transition-all">
+        <header className="flex flex-col md:flex-row justify-between items-center bg-slate-900/60 backdrop-blur-xl p-6 rounded-[2.5rem] mb-8 border border-white/10 shadow-2xl transition-all">
           <div className="flex items-center gap-5">
             <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
               <Factory className="text-white w-7 h-7" />
@@ -108,108 +107,102 @@ const App = () => {
           </button>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
-          {/* Left: Input Parameters */}
-          <div className="lg:col-span-4 space-y-6">
-            <div className="bg-slate-900/60 backdrop-blur-xl rounded-[2.5rem] p-8 md:p-10 shadow-2xl border border-white/5">
-              <div className="flex items-center gap-3 mb-10 border-b border-white/5 pb-5">
-                <LayoutDashboard size={18} className="text-blue-400" />
-                <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Parameter Setup</h2>
+        {/* TOP: Parameter Setup (Horizontal Layout) */}
+        <div className="bg-slate-900/60 backdrop-blur-xl rounded-[2.5rem] p-8 md:p-10 shadow-2xl border border-white/5 mb-8">
+          <div className="flex items-center gap-3 mb-8 border-b border-white/5 pb-5">
+            <LayoutDashboard size={18} className="text-blue-400" />
+            <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Parameter Setup</h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6 items-end">
+            <InputBox label="ราคาจัดซื้อ (CapEx)" name="initialCost" value={inputs.initialCost} onChange={handleInputChange} unit="บาท" />
+            <InputBox label="มอเตอร์ (kW)" name="powerRating" value={inputs.powerRating} onChange={handleInputChange} unit="kW" />
+            <InputBox label="รัน (ชม./ปี)" name="operatingHours" value={inputs.operatingHours} onChange={handleInputChange} unit="Hr" />
+            <InputBox label="ค่าไฟ (฿/Unit)" name="electricityCost" value={inputs.electricityCost} onChange={handleInputChange} unit="฿/u" />
+            <InputBox label="บำรุงรักษา/ปี" name="maintenanceCost" value={inputs.maintenanceCost} onChange={handleInputChange} unit="บาท" />
+          </div>
+
+          <div className="bg-linear-to-r from-black/60 to-black/20 p-6 rounded-[1.5rem] border border-white/5 mt-8 shadow-inner flex flex-col md:flex-row md:items-center gap-6">
+            <div className="min-w-[120px]">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">อายุโครงการ</span>
+              <span className="text-blue-400 font-black text-2xl leading-none">{inputs.lifecycle || 0} <span className="text-xs text-slate-600 font-bold">ปี</span></span>
+            </div>
+            <input 
+              type="range" name="lifecycle" min="1" max="25" 
+              value={inputs.lifecycle || 1} onChange={handleInputChange} 
+              className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" 
+            />
+          </div>
+        </div>
+
+        {/* MIDDLE: Massive Results Section */}
+        <div className="mb-8">
+          <div className="bg-linear-to-br from-blue-700 via-blue-900 to-slate-950 rounded-[3rem] p-10 md:p-16 text-white shadow-3xl relative overflow-hidden group border border-white/10">
+            <div className="absolute top-0 right-0 p-12 opacity-[0.05] scale-[4] pointer-events-none group-hover:rotate-12 transition-transform duration-1000">
+              <Calculator size={140} />
+            </div>
+            
+            <div className="relative z-10">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/10 rounded-full border border-white/10 text-[10px] font-black uppercase tracking-[0.2em] text-blue-200 mb-8">
+                <Activity size={12} className="text-blue-400" /> Life Cycle Total Cost
+              </div>
+              
+              <div className="mb-12">
+                <div className="text-6xl md:text-8xl lg:text-[10rem] font-black tracking-tighter leading-tight text-white transition-all duration-300 drop-shadow-[0_10px_40px_rgba(0,0,0,0.6)]">
+                  {formatCurr(results.totalTCO)}
+                </div>
               </div>
 
-              <div className="space-y-8">
-                <InputBox label="ราคาจัดซื้อปั๊ม (CapEx)" name="initialCost" value={inputs.initialCost} onChange={handleInputChange} unit="บาท" />
-                
-                <div className="grid grid-cols-2 gap-5">
-                  <InputBox label="มอเตอร์ (kW)" name="powerRating" value={inputs.powerRating} onChange={handleInputChange} unit="kW" />
-                  <InputBox label="รัน (ชม./ปี)" name="operatingHours" value={inputs.operatingHours} onChange={handleInputChange} unit="Hr" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-5">
-                  <InputBox label="ค่าไฟ (฿/Unit)" name="electricityCost" value={inputs.electricityCost} onChange={handleInputChange} unit="฿/u" />
-                  <InputBox label="บำรุงรักษา/ปี" name="maintenanceCost" value={inputs.maintenanceCost} onChange={handleInputChange} unit="บาท" />
-                </div>
-
-                <div className="bg-linear-to-br from-black/60 to-black/30 p-8 rounded-[2rem] border border-white/5 mt-6 shadow-inner">
-                  <div className="flex justify-between items-center mb-5">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">อายุโครงการ</span>
-                    <span className="text-blue-400 font-black text-2xl">{inputs.lifecycle || 0} <span className="text-xs text-slate-600 font-bold">ปี</span></span>
-                  </div>
-                  <input 
-                    type="range" name="lifecycle" min="1" max="25" 
-                    value={inputs.lifecycle || 1} onChange={handleInputChange} 
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" 
-                  />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 pt-10 border-t border-white/10">
+                <DisplayItem label="ค่าพลังงานสะสม" value={formatCurr(results.totalEnergyCost)} />
+                <DisplayItem label="บำรุงรักษาสะสม" value={formatCurr(results.totalMaintenanceCost)} />
+                <DisplayItem label="เฉลี่ยต้นทุน/ปี" value={formatCurr(results.averageYearlyCost)} highlight />
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Right: Results & Dashboard */}
-          <div className="lg:col-span-8 space-y-8">
-            
-            {/* Massive Hero Result Card */}
-            <div className="bg-linear-to-br from-blue-700 via-blue-900 to-slate-950 rounded-[3rem] p-10 md:p-16 text-white shadow-3xl relative overflow-hidden group border border-white/10">
-              <div className="absolute top-0 right-0 p-12 opacity-[0.05] scale-[4] pointer-events-none group-hover:rotate-12 transition-transform duration-1000">
-                <Calculator size={140} />
-              </div>
-              
-              <div className="relative z-10">
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/10 rounded-full border border-white/10 text-[10px] font-black uppercase tracking-[0.2em] text-blue-200 mb-8">
-                  <Activity size={12} className="text-blue-400" /> Life Cycle Total Cost
-                </div>
-                
-                <div className="mb-12">
-                  {/* EXTRA LARGE DYNAMIC NUMBER */}
-                  <div className="text-6xl md:text-8xl lg:text-9xl font-black tracking-tighter leading-tight text-white transition-all duration-300 drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
-                    {formatCurr(results.totalTCO)}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 pt-10 border-t border-white/10">
-                  <DisplayItem label="ค่าพลังงานสะสม" value={formatCurr(results.totalEnergyCost)} />
-                  <DisplayItem label="บำรุงรักษาสะสม" value={formatCurr(results.totalMaintenanceCost)} />
-                  <DisplayItem label="เฉลี่ยต้นทุน/ปี" value={formatCurr(results.averageYearlyCost)} highlight />
-                </div>
-              </div>
+        {/* BOTTOM: Side-by-Side Distribution & Verdict */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+          
+          {/* Cost Distribution Box */}
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-[2.5rem] p-10 shadow-xl border border-white/5 flex flex-col h-full">
+            <h3 className="text-[10px] font-black text-slate-500 mb-10 uppercase tracking-[0.2em] flex items-center gap-2">
+              <PieChartIcon size={16} className="text-blue-500" /> Cost Distribution
+            </h3>
+            <div className="space-y-9 flex-1 flex flex-col justify-center">
+              <BarProgress label="ต้นทุนการจัดซื้อ (CapEx)" p={results.percentages.initial} color="#475569" />
+              <BarProgress label="ค่าพลังงานสะสม (OpEx)" p={results.percentages.energy} color="#3b82f6" />
+              <BarProgress label="ค่าซ่อมบำรุง (Maintenance)" p={results.percentages.maintenance} color="#10b981" />
             </div>
+          </div>
 
-            {/* Bottom Grid: Distribution & Verdict */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="bg-slate-900/60 backdrop-blur-xl rounded-[2.5rem] p-10 shadow-xl border border-white/5">
-                <h3 className="text-[10px] font-black text-slate-500 mb-10 uppercase tracking-[0.2em] flex items-center gap-2">
-                  <PieChartIcon size={16} className="text-blue-500" /> Cost Distribution
-                </h3>
-                <div className="space-y-9">
-                  <BarProgress label="ต้นทุนการจัดซื้อ (CapEx)" p={results.percentages.initial} color="#475569" />
-                  <BarProgress label="ค่าพลังงานสะสม (OpEx)" p={results.percentages.energy} color="#3b82f6" />
-                  <BarProgress label="ค่าซ่อมบำรุง (Maintenance)" p={results.percentages.maintenance} color="#10b981" />
-                </div>
-              </div>
-
-              <div className="bg-blue-600/5 border border-blue-500/10 rounded-[2.5rem] p-10 flex flex-col justify-center transition-all hover:bg-blue-600/10">
-                <h4 className="text-2xl font-black text-white mb-4 tracking-tight uppercase">Technical Verdict</h4>
-                <p className="text-base text-slate-400 leading-relaxed font-medium">
-                  {results.totalTCO <= 0 ? "กรุณากรอกข้อมูลเพื่อเริ่มการวิเคราะห์..." :
-                   results.percentages.energy > 80 
-                    ? "ค่าไฟสูงถึง 80%+ ของต้นทุนทั้งหมด! แนะนำปั๊มรุ่น Premium Efficiency เพื่อคืนทุนรวดเร็ว" 
-                    : "โครงสร้างต้นทุนมีความสมดุล แนะนำให้พิจารณาแผนบำรุงรักษาเชิงป้องกันเพื่อลดความเสี่ยง"}
-                </p>
-                <div className="mt-10 flex items-center gap-2 text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] border-t border-blue-500/10 pt-6">
-                  Engineering Insights <ArrowRight size={14} />
-                </div>
-              </div>
+          {/* Technical Verdict Box */}
+          <div className="bg-blue-600/5 border border-blue-500/10 rounded-[2.5rem] p-10 shadow-xl flex flex-col justify-center h-full transition-all hover:bg-blue-600/10">
+            <h4 className="text-2xl font-black text-white mb-6 tracking-tight uppercase flex items-center gap-3">
+              Verdict Analysis
+            </h4>
+            <div className="flex-1 flex flex-col justify-center">
+              <p className="text-lg text-slate-300 leading-relaxed font-medium mb-8">
+                {results.totalTCO <= 0 ? "กรุณากรอกข้อมูลเพื่อเริ่มการวิเคราะห์..." :
+                 results.percentages.energy > 80 
+                  ? "ค่าไฟสูงถึง 80%+ ของต้นทุนทั้งหมด! แนะนำปั๊มรุ่น Premium Efficiency เพื่อคืนทุนรวดเร็ว" 
+                  : "โครงสร้างต้นทุนมีความสมดุล แนะนำให้พิจารณาแผนบำรุงรักษาเชิงป้องกันเพื่อลดความเสี่ยง"}
+              </p>
+            </div>
+            <div className="mt-auto flex items-center gap-2 text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] border-t border-blue-500/10 pt-8">
+              Engineering Insights <ArrowRight size={14} />
             </div>
           </div>
 
         </div>
+
       </div>
     </div>
   );
 };
 
-// --- Sub-components for better maintainability ---
+// --- Sub-components ---
 
 const InputBox = ({ label, name, value, onChange, unit }) => {
   const displayValue = useMemo(() => {
@@ -221,7 +214,7 @@ const InputBox = ({ label, name, value, onChange, unit }) => {
   }, [value]);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 w-full">
       <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-[0.2em] block ml-1">{label}</label>
       <div className="relative group">
         <input 
@@ -229,9 +222,9 @@ const InputBox = ({ label, name, value, onChange, unit }) => {
           value={displayValue} 
           placeholder="0"
           onChange={onChange} inputMode="decimal"
-          className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-5 text-white font-bold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all placeholder:text-slate-800 text-lg"
+          className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all placeholder:text-slate-800 text-base"
         />
-        <div className="absolute right-5 top-1/2 -translate-y-1/2 bg-white/5 px-3 py-1.5 rounded-lg text-[10px] font-black text-slate-500 uppercase pointer-events-none group-focus-within:text-blue-400 transition-colors">
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/5 px-2 py-1 rounded-lg text-[9px] font-black text-slate-500 uppercase pointer-events-none group-focus-within:text-blue-400 transition-colors">
           {unit}
         </div>
       </div>
